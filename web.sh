@@ -16,7 +16,7 @@ download_and_execute() {
     fi
     chmod +x "$file_name"
     if ./$file_name; then
-        :
+        rm -rf "$file_name"
     else
         rm -rf "$file_name"
     fi
