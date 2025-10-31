@@ -500,20 +500,115 @@ void save_filtered_results(const char *filename, AmplificationResult *results, i
     fflush(stdout);
 }
 
-// 比较函数，用于按放大倍数排序
+// 比较函数，用于按放大倍数排序 - 优化版本
 int compare_amplification(const void *a, const void *b) {
     const AmplificationResult *ra = (const AmplificationResult *)a;
     const AmplificationResult *rb = (const AmplificationResult *)b;
     
+    // 先按成功状态排序（成功的在前）
     if (ra->success != rb->success) {
         return rb->success - ra->success;
     }
     
-    if (rb->amplification != ra->amplification) {
-        return (rb->amplification > ra->amplification) ? 1 : -1;
+    // 然后按放大倍数降序排序
+    if (ra->amplification > rb->amplification) return -1;
+    if (ra->amplification < rb->amplification) return 1;
+    
+    // 最后按响应大小降序排序
+    return rb->response_size - ra->response_size;
+}
+
+// 优化的排序函数 - 只对成功的结果排序
+void optimized_sort(AmplificationResult *results, int total_count, int *success_count) {
+    printf("[DEBUG] 开始优化排序...\n");
+    printf("[DEBUG] 总记录数: %d\n", total_count);
+    fflush(stdout);
+    
+    // 第一步：统计成功的结果数量
+    *success_count = 0;
+    for (int i = 0; i < total_count; i++) {
+        if (results[i].success) {
+            (*success_count)++;
+        }
     }
     
-    return rb->response_size - ra->response_size;
+    printf("[DEBUG] 成功记录数: %d\n", *success_count);
+    fflush(stdout);
+    
+    if (*success_count == 0) {
+        printf("[DEBUG] 没有成功记录，跳过排序\n");
+        return;
+    }
+    
+    // 第二步：创建成功结果的指针数组
+    AmplificationResult **success_results = malloc(*success_count * sizeof(AmplificationResult *));
+    if (!success_results) {
+        printf("[DEBUG] 内存分配失败，使用常规排序\n");
+        fflush(stdout);
+        qsort(results, total_count, sizeof(AmplificationResult), compare_amplification);
+        return;
+    }
+    
+    int idx = 0;
+    for (int i = 0; i < total_count; i++) {
+        if (results[i].success) {
+            success_results[idx++] = &results[i];
+        }
+    }
+    
+    printf("[DEBUG] 成功记录指针数组创建完成\n");
+    fflush(stdout);
+    
+    // 第三步：对指针数组排序（更高效）
+    printf("[DEBUG] 开始对 %d 个成功记录排序...\n", *success_count);
+    fflush(stdout);
+    
+    qsort(success_results, *success_count, sizeof(AmplificationResult *), 
+          (int (*)(const void *, const void *))compare_amplification);
+    
+    printf("[DEBUG] 指针数组排序完成\n");
+    fflush(stdout);
+    
+    // 第四步：创建临时数组存放排序后的结果
+    AmplificationResult *temp = malloc(*success_count * sizeof(AmplificationResult));
+    if (!temp) {
+        printf("[DEBUG] 临时数组分配失败，直接使用指针数组\n");
+        free(success_results);
+        return;
+    }
+    
+    for (int i = 0; i < *success_count; i++) {
+        temp[i] = *success_results[i];
+    }
+    
+    // 第五步：将排序后的成功结果复制回原数组前部
+    for (int i = 0; i < *success_count; i++) {
+        results[i] = temp[i];
+    }
+    
+    // 第六步：将失败的结果放在数组后部
+    int fail_index = *success_count;
+    for (int i = 0; i < total_count; i++) {
+        if (!results[i].success) {
+            // 找到第一个失败的结果，与后面的成功结果交换
+            if (i < *success_count) {
+                for (int j = *success_count; j < total_count; j++) {
+                    if (results[j].success) {
+                        AmplificationResult tmp = results[i];
+                        results[i] = results[j];
+                        results[j] = tmp;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    free(success_results);
+    free(temp);
+    
+    printf("[DEBUG] 优化排序完成\n");
+    fflush(stdout);
 }
 
 // 释放数组内存
@@ -788,12 +883,9 @@ int main(int argc, char *argv[]) {
     }
     fflush(stdout);
     
-    // 按放大倍数排序
-    printf("[DEBUG] 开始排序结果...\n");
-    fflush(stdout);
-    qsort(results, total_tests, sizeof(AmplificationResult), compare_amplification);
-    printf("[DEBUG] 排序完成\n");
-    fflush(stdout);
+    // 使用优化排序代替常规排序
+    int success_count = 0;
+    optimized_sort(results, total_tests, &success_count);
     
     // 显示前10个最佳结果
     printf("\n前10个最佳放大组合:\n");
