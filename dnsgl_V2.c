@@ -56,7 +56,6 @@ AmplificationResult test_amplification(const char *domain, const char *dns_serve
 void *test_thread(void *arg);
 char **read_dns_servers_from_file(const char *filename, int *count);
 char **generate_test_domains(int *count, char *custom_domain);
-int compare_amplification(const void *a, const void *b);
 void save_filtered_results(const char *filename, AmplificationResult *results, int count, 
                           double min_amplification, int min_response_size, 
                           int use_amp_filter, int use_size_filter);
@@ -64,6 +63,8 @@ void manual_deduplicate(const char *filename);
 int compare_strings(const void *a, const void *b);
 void free_string_array(char **array, int count);
 void print_usage(char *program_name);
+void find_top_results(AmplificationResult *results, int count, int use_amp_filter, int use_size_filter,
+                     double min_amplification, int min_response_size, AmplificationResult *top_results, int top_count);
 
 // 计算时间差（毫秒）
 double time_diff(struct timeval *start, struct timeval *end) {
@@ -500,114 +501,55 @@ void save_filtered_results(const char *filename, AmplificationResult *results, i
     fflush(stdout);
 }
 
-// 比较函数，用于按放大倍数排序 - 优化版本
-int compare_amplification(const void *a, const void *b) {
-    const AmplificationResult *ra = (const AmplificationResult *)a;
-    const AmplificationResult *rb = (const AmplificationResult *)b;
-    
-    // 先按成功状态排序（成功的在前）
-    if (ra->success != rb->success) {
-        return rb->success - ra->success;
-    }
-    
-    // 然后按放大倍数降序排序
-    if (ra->amplification > rb->amplification) return -1;
-    if (ra->amplification < rb->amplification) return 1;
-    
-    // 最后按响应大小降序排序
-    return rb->response_size - ra->response_size;
-}
-
-// 优化的排序函数 - 只对成功的结果排序
-void optimized_sort(AmplificationResult *results, int total_count, int *success_count) {
-    printf("[DEBUG] 开始优化排序...\n");
-    printf("[DEBUG] 总记录数: %d\n", total_count);
+// 查找前N个最佳结果 - 避免全局排序
+void find_top_results(AmplificationResult *results, int count, int use_amp_filter, int use_size_filter,
+                     double min_amplification, int min_response_size, AmplificationResult *top_results, int top_count) {
+    printf("[DEBUG] 开始查找前%d个最佳结果...\n", top_count);
     fflush(stdout);
     
-    // 第一步：统计成功的结果数量
-    *success_count = 0;
-    for (int i = 0; i < total_count; i++) {
+    // 初始化前N个结果
+    for (int i = 0; i < top_count; i++) {
+        top_results[i].success = 0;
+        top_results[i].amplification = -1.0;
+    }
+    
+    int processed = 0;
+    
+    for (int i = 0; i < count; i++) {
         if (results[i].success) {
-            (*success_count)++;
-        }
-    }
-    
-    printf("[DEBUG] 成功记录数: %d\n", *success_count);
-    fflush(stdout);
-    
-    if (*success_count == 0) {
-        printf("[DEBUG] 没有成功记录，跳过排序\n");
-        return;
-    }
-    
-    // 第二步：创建成功结果的指针数组
-    AmplificationResult **success_results = malloc(*success_count * sizeof(AmplificationResult *));
-    if (!success_results) {
-        printf("[DEBUG] 内存分配失败，使用常规排序\n");
-        fflush(stdout);
-        qsort(results, total_count, sizeof(AmplificationResult), compare_amplification);
-        return;
-    }
-    
-    int idx = 0;
-    for (int i = 0; i < total_count; i++) {
-        if (results[i].success) {
-            success_results[idx++] = &results[i];
-        }
-    }
-    
-    printf("[DEBUG] 成功记录指针数组创建完成\n");
-    fflush(stdout);
-    
-    // 第三步：对指针数组排序（更高效）
-    printf("[DEBUG] 开始对 %d 个成功记录排序...\n", *success_count);
-    fflush(stdout);
-    
-    qsort(success_results, *success_count, sizeof(AmplificationResult *), 
-          (int (*)(const void *, const void *))compare_amplification);
-    
-    printf("[DEBUG] 指针数组排序完成\n");
-    fflush(stdout);
-    
-    // 第四步：创建临时数组存放排序后的结果
-    AmplificationResult *temp = malloc(*success_count * sizeof(AmplificationResult));
-    if (!temp) {
-        printf("[DEBUG] 临时数组分配失败，直接使用指针数组\n");
-        free(success_results);
-        return;
-    }
-    
-    for (int i = 0; i < *success_count; i++) {
-        temp[i] = *success_results[i];
-    }
-    
-    // 第五步：将排序后的成功结果复制回原数组前部
-    for (int i = 0; i < *success_count; i++) {
-        results[i] = temp[i];
-    }
-    
-    // 第六步：将失败的结果放在数组后部
-    int fail_index = *success_count;
-    for (int i = 0; i < total_count; i++) {
-        if (!results[i].success) {
-            // 找到第一个失败的结果，与后面的成功结果交换
-            if (i < *success_count) {
-                for (int j = *success_count; j < total_count; j++) {
-                    if (results[j].success) {
-                        AmplificationResult tmp = results[i];
-                        results[i] = results[j];
-                        results[j] = tmp;
+            int meets_amp_criteria = !use_amp_filter || results[i].amplification >= min_amplification;
+            int meets_size_criteria = !use_size_filter || results[i].response_size >= min_response_size;
+            
+            if (meets_amp_criteria && meets_size_criteria) {
+                // 找到当前结果应该插入的位置
+                int insert_pos = -1;
+                for (int j = 0; j < top_count; j++) {
+                    if (!top_results[j].success || results[i].amplification > top_results[j].amplification) {
+                        insert_pos = j;
                         break;
                     }
                 }
+                
+                // 如果需要插入，则进行插入
+                if (insert_pos != -1) {
+                    // 将插入位置之后的元素向后移动
+                    for (int j = top_count - 1; j > insert_pos; j--) {
+                        top_results[j] = top_results[j - 1];
+                    }
+                    // 插入新元素
+                    top_results[insert_pos] = results[i];
+                }
             }
+        }
+        
+        processed++;
+        if (processed % 100000 == 0) {
+            printf("[DEBUG] 查找进度: %d/%d (%.1f%%)\n", processed, count, (double)processed/count*100);
+            fflush(stdout);
         }
     }
     
-    free(success_results);
-    free(temp);
-    
-    printf("[DEBUG] 优化排序完成\n");
+    printf("[DEBUG] 前%d个最佳结果查找完成\n", top_count);
     fflush(stdout);
 }
 
@@ -883,9 +825,12 @@ int main(int argc, char *argv[]) {
     }
     fflush(stdout);
     
-    // 使用优化排序代替常规排序
-    int success_count = 0;
-    optimized_sort(results, total_tests, &success_count);
+    // 使用高效的前N查找代替全局排序
+    printf("[DEBUG] 开始查找前10个最佳结果...\n");
+    fflush(stdout);
+    AmplificationResult top_results[10];
+    find_top_results(results, total_tests, use_amp_filter, use_size_filter, 
+                    min_amplification, min_response_size, top_results, 10);
     
     // 显示前10个最佳结果
     printf("\n前10个最佳放大组合:\n");
@@ -894,40 +839,24 @@ int main(int argc, char *argv[]) {
     printf("------------------------------------------------------------\n");
     fflush(stdout);
     
-    int display_count = (filtered_count < 10) ? filtered_count : 10;
     int displayed = 0;
-    for (int i = 0; i < total_tests && displayed < display_count; i++) {
-        if (results[i].success) {
-            int meets_amp_criteria = 1;
-            int meets_size_criteria = 1;
-            
-            // 检查放大倍数条件
-            if (use_amp_filter && results[i].amplification < min_amplification) {
-                meets_amp_criteria = 0;
-            }
-            
-            // 检查响应大小条件
-            if (use_size_filter && results[i].response_size < min_response_size) {
-                meets_size_criteria = 0;
-            }
-            
-            // 根据使用的过滤器决定是否显示
-            if ((!use_amp_filter && !use_size_filter) || // 没有指定过滤器，显示所有成功的
-                (use_amp_filter && !use_size_filter && meets_amp_criteria) || // 只使用放大倍数过滤
-                (!use_amp_filter && use_size_filter && meets_size_criteria) || // 只使用响应大小过滤
-                (use_amp_filter && use_size_filter && meets_amp_criteria && meets_size_criteria)) { // 同时使用两个过滤器
-                
-                printf("%-15s %-20s %-6d %-6d %-8.1f %-8.1f\n",
-                       results[i].dns_server,
-                       results[i].domain,
-                       results[i].request_size,
-                       results[i].response_size,
-                       results[i].amplification,
-                       results[i].response_time);
-                displayed++;
-            }
+    for (int i = 0; i < 10; i++) {
+        if (top_results[i].success) {
+            printf("%-15s %-20s %-6d %-6d %-8.1f %-8.1f\n",
+                   top_results[i].dns_server,
+                   top_results[i].domain,
+                   top_results[i].request_size,
+                   top_results[i].response_size,
+                   top_results[i].amplification,
+                   top_results[i].response_time);
+            displayed++;
         }
     }
+    
+    if (displayed == 0) {
+        printf("没有找到符合条件的结果\n");
+    }
+    
     printf("[DEBUG] 前10结果显示完成\n");
     fflush(stdout);
     
