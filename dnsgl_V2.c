@@ -327,9 +327,6 @@ int compare_strings(const void *a, const void *b) {
 
 // 手动去重备用方案
 void manual_deduplicate(const char *filename) {
-    printf("[DEBUG] 开始手动去重: %s\n", filename);
-    fflush(stdout);
-    
     FILE *file = fopen(filename, "r");
     if (!file) return;
     
@@ -357,20 +354,13 @@ void manual_deduplicate(const char *filename) {
     }
     fclose(file);
     
-    printf("[DEBUG] 读取了 %d 行数据\n", count);
-    fflush(stdout);
-    
     if (count == 0) {
         free(ips);
         return;
     }
     
     // 排序
-    printf("[DEBUG] 开始排序...\n");
-    fflush(stdout);
     qsort(ips, count, sizeof(char *), compare_strings);
-    printf("[DEBUG] 排序完成\n");
-    fflush(stdout);
     
     // 去重并写回文件
     file = fopen(filename, "w");
@@ -390,28 +380,19 @@ void manual_deduplicate(const char *filename) {
             unique_count++;
         }
         free(ips[i]);
-        
-        // 进度显示
-        if (i % 10000 == 0) {
-            printf("[DEBUG] 手动去重进度: %d/%d\n", i, count);
-            fflush(stdout);
-        }
     }
     
     free(ips);
     fclose(file);
     
     printf("手动去重完成，共 %d 个唯一IP\n", unique_count);
-    fflush(stdout);
 }
 
 // 保存过滤结果到文件 - 优化版本：使用系统命令去重
 void save_filtered_results(const char *filename, AmplificationResult *results, int count, 
                           double min_amplification, int min_response_size, 
                           int use_amp_filter, int use_size_filter) {
-    printf("[DEBUG] 开始保存过滤结果到: %s\n", filename);
-    printf("[DEBUG] 总记录数: %d\n", count);
-    fflush(stdout);
+    printf("正在保存过滤结果...\n");
     
     FILE *file = fopen(filename, "w");
     if (!file) {
@@ -420,9 +401,6 @@ void save_filtered_results(const char *filename, AmplificationResult *results, i
     }
     
     int saved_count = 0;
-    
-    printf("[DEBUG] 开始第一遍过滤写入...\n");
-    fflush(stdout);
     
     // 第一遍：快速写入所有符合条件的IP（可能有重复）
     for (int i = 0; i < count; i++) {
@@ -436,20 +414,18 @@ void save_filtered_results(const char *filename, AmplificationResult *results, i
             }
         }
         
-        // 进度显示
-        if (i % 100000 == 0) {
-            printf("保存进度: %d/%d (%.1f%%)\n", i, count, (double)i/count*100);
+        // 进度显示 - 同一行更新
+        if (i % 10000 == 0) {
+            printf("保存进度: %d/%d (%.1f%%)\r", i, count, (double)i/count*100);
             fflush(stdout);
         }
     }
     
     fclose(file);
-    printf("[DEBUG] 初步保存完成，共 %d 个IP（包含重复）\n", saved_count);
-    fflush(stdout);
+    printf("\n初步保存了 %d 个IP（包含重复）\n", saved_count);
     
     // 使用系统命令去重
-    printf("[DEBUG] 开始系统去重...\n");
-    fflush(stdout);
+    printf("正在去重...\n");
     char command[512];
     snprintf(command, sizeof(command), "sort -u %s -o %s.tmp && mv %s.tmp %s", 
              filename, filename, filename, filename);
@@ -457,33 +433,18 @@ void save_filtered_results(const char *filename, AmplificationResult *results, i
     int ret = system(command);
     if (ret != 0) {
         printf("警告: 去重命令执行失败，使用手动去重\n");
-        fflush(stdout);
         // 手动去重备用方案
         manual_deduplicate(filename);
-    } else {
-        printf("[DEBUG] 系统去重完成\n");
-        fflush(stdout);
     }
     
     // 重新计数唯一IP数量
-    printf("[DEBUG] 开始计数唯一IP...\n");
-    fflush(stdout);
     FILE *count_file = fopen(filename, "r");
     int unique_count = 0;
     char line[64];
     while (fgets(line, sizeof(line), count_file)) {
         unique_count++;
-        
-        // 进度显示（每10000行显示一次）
-        if (unique_count % 10000 == 0) {
-            printf("[DEBUG] 已计数 %d 个唯一IP...\n", unique_count);
-            fflush(stdout);
-        }
     }
     fclose(count_file);
-    
-    printf("[DEBUG] 最终计数完成\n");
-    fflush(stdout);
     
     // 根据使用的过滤器显示不同的消息
     if (use_amp_filter && use_size_filter) {
@@ -498,15 +459,11 @@ void save_filtered_results(const char *filename, AmplificationResult *results, i
     } else {
         printf("保存了 %d 个唯一的DNS服务器IP到: %s\n", unique_count, filename);
     }
-    fflush(stdout);
 }
 
 // 查找前N个最佳结果 - 避免全局排序
 void find_top_results(AmplificationResult *results, int count, int use_amp_filter, int use_size_filter,
                      double min_amplification, int min_response_size, AmplificationResult *top_results, int top_count) {
-    printf("[DEBUG] 开始查找前%d个最佳结果...\n", top_count);
-    fflush(stdout);
-    
     // 初始化前N个结果
     for (int i = 0; i < top_count; i++) {
         top_results[i].success = 0;
@@ -544,13 +501,12 @@ void find_top_results(AmplificationResult *results, int count, int use_amp_filte
         
         processed++;
         if (processed % 100000 == 0) {
-            printf("[DEBUG] 查找进度: %d/%d (%.1f%%)\n", processed, count, (double)processed/count*100);
+            printf("查找进度: %d/%d (%.1f%%)\r", processed, count, (double)processed/count*100);
             fflush(stdout);
         }
     }
     
-    printf("[DEBUG] 前%d个最佳结果查找完成\n", top_count);
-    fflush(stdout);
+    printf("\n");
 }
 
 // 释放数组内存
@@ -630,8 +586,6 @@ int main(int argc, char *argv[]) {
     }
     
     // 读取DNS服务器列表
-    printf("[DEBUG] 开始读取DNS服务器列表...\n");
-    fflush(stdout);
     int server_count = 0;
     char **dns_servers = read_dns_servers_from_file(input_file, &server_count);
     
@@ -639,12 +593,8 @@ int main(int argc, char *argv[]) {
         printf("错误: 无法读取DNS服务器列表: %s\n", input_file);
         return 1;
     }
-    printf("[DEBUG] DNS服务器列表读取完成: %d 个服务器\n", server_count);
-    fflush(stdout);
     
     // 生成测试域名列表
-    printf("[DEBUG] 开始生成测试域名列表...\n");
-    fflush(stdout);
     int domain_count = 0;
     char **test_domains = generate_test_domains(&domain_count, custom_domain);
     
@@ -653,8 +603,6 @@ int main(int argc, char *argv[]) {
         free_string_array(dns_servers, server_count);
         return 1;
     }
-    printf("[DEBUG] 测试域名列表生成完成: %d 个域名\n", domain_count);
-    fflush(stdout);
     
     printf("输入文件: %s\n", input_file);
     printf("DNS服务器数量: %d\n", server_count);
@@ -682,11 +630,8 @@ int main(int argc, char *argv[]) {
     printf("总测试数量: %d\n", server_count * domain_count);
     printf("线程数: %d\n", THREAD_COUNT);
     printf("按 Ctrl+C 停止测试\n\n");
-    fflush(stdout);
     
     // 初始化结果数组
-    printf("[DEBUG] 开始分配结果数组内存...\n");
-    fflush(stdout);
     int total_tests = server_count * domain_count;
     AmplificationResult *results = calloc(total_tests, sizeof(AmplificationResult));
     if (!results) {
@@ -695,8 +640,6 @@ int main(int argc, char *argv[]) {
         free_string_array(test_domains, domain_count);
         return 1;
     }
-    printf("[DEBUG] 结果数组内存分配完成: %d 条记录\n", total_tests);
-    fflush(stdout);
     
     // 初始化多线程相关
     int current_index = 0;
@@ -705,7 +648,6 @@ int main(int argc, char *argv[]) {
     ThreadData thread_data[THREAD_COUNT];
     
     printf("启动 %d 个线程...\n", THREAD_COUNT);
-    fflush(stdout);
     
     // 创建线程
     for (int i = 0; i < THREAD_COUNT; i++) {
@@ -720,7 +662,6 @@ int main(int argc, char *argv[]) {
         
         if (pthread_create(&threads[i], NULL, test_thread, &thread_data[i]) != 0) {
             printf("警告: 无法创建线程 %d\n", i);
-            fflush(stdout);
         }
     }
     
@@ -755,8 +696,6 @@ int main(int argc, char *argv[]) {
     }
     
     // 等待所有线程完成
-    printf("\n[DEBUG] 等待所有线程完成...\n");
-    fflush(stdout);
     for (int i = 0; i < THREAD_COUNT; i++) {
         if (threads[i]) pthread_join(threads[i], NULL);
     }
@@ -768,11 +707,8 @@ int main(int argc, char *argv[]) {
     } else {
         printf("\n测试完成! 处理了 %d 个测试\n", current_index);
     }
-    fflush(stdout);
     
     // 快速统计
-    printf("[DEBUG] 开始快速统计...\n");
-    fflush(stdout);
     int valid_count = 0;
     int filtered_count = 0;
     
@@ -803,9 +739,6 @@ int main(int argc, char *argv[]) {
         }
     }
     
-    printf("[DEBUG] 统计完成\n");
-    fflush(stdout);
-    
     printf("\n统计信息:\n");
     printf("总测试数: %d\n", total_tests);
     printf("有效响应: %d (%.1f%%)\n", valid_count, (double)valid_count / total_tests * 100);
@@ -823,11 +756,9 @@ int main(int argc, char *argv[]) {
     } else {
         printf("成功组合: %d (%.1f%%)\n", filtered_count, (double)filtered_count / total_tests * 100);
     }
-    fflush(stdout);
     
     // 使用高效的前N查找代替全局排序
-    printf("[DEBUG] 开始查找前10个最佳结果...\n");
-    fflush(stdout);
+    printf("正在查找前10个最佳结果...\n");
     AmplificationResult top_results[10];
     find_top_results(results, total_tests, use_amp_filter, use_size_filter, 
                     min_amplification, min_response_size, top_results, 10);
@@ -837,7 +768,6 @@ int main(int argc, char *argv[]) {
     printf("%-15s %-20s %-6s %-6s %-8s %-8s\n", 
            "DNS服务器", "域名", "请求", "响应", "倍数", "时间");
     printf("------------------------------------------------------------\n");
-    fflush(stdout);
     
     int displayed = 0;
     for (int i = 0; i < 10; i++) {
@@ -857,24 +787,13 @@ int main(int argc, char *argv[]) {
         printf("没有找到符合条件的结果\n");
     }
     
-    printf("[DEBUG] 前10结果显示完成\n");
-    fflush(stdout);
-    
     // 保存过滤结果
-    printf("[DEBUG] 开始保存过滤结果...\n");
-    fflush(stdout);
     save_filtered_results(output_file, results, total_tests, min_amplification, min_response_size, use_amp_filter, use_size_filter);
-    printf("[DEBUG] 保存过滤结果完成\n");
-    fflush(stdout);
     
     // 清理内存
-    printf("[DEBUG] 开始清理内存...\n");
-    fflush(stdout);
     free_string_array(dns_servers, server_count);
     free_string_array(test_domains, domain_count);
     free(results);
-    printf("[DEBUG] 内存清理完成，程序结束\n");
-    fflush(stdout);
     
     return 0;
 }
