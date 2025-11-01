@@ -1,4 +1,4 @@
-/*
+/* 
         DNS放大攻击服务器过滤分析工具 - 毕方资源网
         gcc -o dnsgl dnsgl.c -lpthread;chmod 777 *
 */
